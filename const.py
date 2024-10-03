@@ -1,1 +1,1 @@
-DOMAIN = "usms"
+DOMAIN = "ha-usms"
