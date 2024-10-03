@@ -1,0 +1,11 @@
+{
+    "domain": "usms",
+    "name": "USMS",
+    "codeowners": [],
+    "dependencies": [],
+    "documentation": "",
+    "integration_type": "hub",
+    "iot_class": "cloud_polling",
+    "requirements": ["usms==0.2.0"],
+    "version": "0.2.0"
+}
