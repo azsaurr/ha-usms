@@ -161,8 +161,8 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
         self._attr_state_class = None
 
-        # self._attr_entity_registry_enabled_default = True
-        # self._attr_state = None
+        self._attr_entity_registry_enabled_default = True
+        self._attr_state = None
 
         self._meter = meter
 
@@ -202,7 +202,7 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
         end_date: datetime | None = None,
     ) -> list[HistoricalState]:
         """
-        Returns a chronologically descending
+        Returns a chronologically ascending
         list of historical states
         according to range of dates passed
         """
@@ -224,7 +224,7 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
                     datetime(iter_date.year, iter_date.month, iter_date.day)
                 )
 
-                for hour, consumption in reversed(hourly_consumptions.items()):
+                for hour, consumption in hourly_consumptions.items():
                     if hour == 24:
                         temp_date = iter_date + timedelta(days=1)
                         historical_state = HistoricalState(
@@ -252,7 +252,7 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
                                 )
                             ),
                         )
-                    historical_states.append(historical_state)
+                    historical_states.insert(0, historical_state)
 
                 iter_date -= timedelta(days=1)
             except Exception:
@@ -272,7 +272,50 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # internal source by default.
         #
         meta = super().get_statistic_metadata()
-        meta["has_sum"] = False
-        meta["has_mean"] = False
+        meta["has_sum"] = True
+        meta["has_mean"] = True
 
         return meta
+
+    async def async_calculate_statistic_data(
+        self,
+        hist_states: list[HistoricalState],
+        *,
+        latest: dict | None = None,
+    ) -> list[StatisticData]:
+        #
+        # Group historical states by hour
+        # Calculate sum, mean, etc...
+        #
+
+        accumulated = latest["sum"] if latest else 0
+
+        def hour_block_for_hist_state(hist_state: HistoricalState) -> datetime:
+            # XX:00:00 states belongs to previous hour block
+            if hist_state.dt.minute == 0 and hist_state.dt.second == 0:
+                dt = hist_state.dt - timedelta(hours=1)
+                return dt.replace(minute=0, second=0, microsecond=0)
+
+            else:
+                return hist_state.dt.replace(minute=0, second=0, microsecond=0)
+
+        ret = []
+        for dt, collection_it in itertools.groupby(
+            hist_states,
+            key=hour_block_for_hist_state,
+        ):
+            collection = list(collection_it)
+            mean = statistics.mean([x.state for x in collection])
+            partial_sum = sum([x.state for x in collection])
+            accumulated = accumulated + partial_sum
+
+            ret.append(
+                StatisticData(
+                    start=dt,
+                    state=partial_sum,
+                    mean=mean,
+                    sum=accumulated,
+                )
+            )
+
+        return ret
