@@ -8,5 +8,5 @@
     "integration_type": "hub",
     "iot_class": "cloud_polling",
     "requirements": ["usms==0.2.2", "homeassistant-historical-sensor==2.0.0rc6"],
-    "version": "0.2.2"
+    "version": "0.2.3"
 }
