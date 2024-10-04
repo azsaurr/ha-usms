@@ -224,7 +224,7 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
                     datetime(iter_date.year, iter_date.month, iter_date.day)
                 )
 
-                for hour, consumption in hourly_consumptions.items():
+                for hour, consumption in reversed(hourly_consumptions.items()):
                     if hour == 24:
                         temp_date = iter_date + timedelta(days=1)
                         historical_state = HistoricalState(
@@ -253,7 +253,9 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
                             ),
                         )
                     historical_states.insert(0, historical_state)
-
+                _LOGGER.debug(
+                    f"Retrieved {self._attr_name} historical data for {iter_date}"
+                )
                 iter_date -= timedelta(days=1)
             except Exception:
                 # stops iterating once no more historical data can be obtained
