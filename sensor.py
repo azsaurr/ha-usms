@@ -104,9 +104,9 @@ class EnergyUnit(SensorEntity):
         """Initialize an Energy Unit Meter."""
         super().__init__()
 
-        self._attr_name = "usms_meter_" + meter.no + "_unit"
-        self._attr_unique_id = "usms_meter_" + meter.no + "_unit"
-        self._attr_entity_id = "usms_meter_" + meter.no + "_unit"
+        self._attr_name = "usms_electricity_meter_" + meter.no + "_unit"
+        self._attr_unique_id = "usms_electricity_meter_" + meter.no + "_unit"
+        self._attr_entity_id = "usms_electricity_meter_" + meter.no + "_unit"
 
         self._attr_state = meter.is_active()
 
@@ -155,9 +155,9 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
         """Initialize an Energy Consumption Meter."""
         super().__init__()
 
-        self._attr_name = "usms_meter_" + meter.no + "_consumption"
-        self._attr_unique_id = "usms_meter_" + meter.no + "_consumption"
-        self._attr_entity_id = "usms_meter_" + meter.no + "_consumption"
+        self._attr_name = "usms_electricity_meter_" + meter.no + "_consumption"
+        self._attr_unique_id = "usms_electricity_meter_" + meter.no + "_consumption"
+        self._attr_entity_id = "usms_electricity_meter_" + meter.no + "_consumption"
 
         self._attr_state_class = None
 
