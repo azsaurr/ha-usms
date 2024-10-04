@@ -161,8 +161,8 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
         self._attr_state_class = None
 
-        self._attr_entity_registry_enabled_default = True
-        self._attr_state = None
+        # self._attr_entity_registry_enabled_default = True
+        # self._attr_state = None
 
         self._meter = meter
 
@@ -272,50 +272,7 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # internal source by default.
         #
         meta = super().get_statistic_metadata()
-        meta["has_sum"] = True
-        meta["has_mean"] = True
+        meta["has_sum"] = False
+        meta["has_mean"] = False
 
         return meta
-
-    async def async_calculate_statistic_data(
-        self,
-        hist_states: list[HistoricalState],
-        *,
-        latest: dict | None = None,
-    ) -> list[StatisticData]:
-        #
-        # Group historical states by hour
-        # Calculate sum, mean, etc...
-        #
-
-        accumulated = latest["sum"] if latest else 0
-
-        def hour_block_for_hist_state(hist_state: HistoricalState) -> datetime:
-            # XX:00:00 states belongs to previous hour block
-            if hist_state.dt.minute == 0 and hist_state.dt.second == 0:
-                dt = hist_state.dt - timedelta(hours=1)
-                return dt.replace(minute=0, second=0, microsecond=0)
-
-            else:
-                return hist_state.dt.replace(minute=0, second=0, microsecond=0)
-
-        ret = []
-        for dt, collection_it in itertools.groupby(
-            hist_states,
-            key=hour_block_for_hist_state,
-        ):
-            collection = list(collection_it)
-            mean = statistics.mean([x.state for x in collection])
-            partial_sum = sum([x.state for x in collection])
-            accumulated = accumulated + partial_sum
-
-            ret.append(
-                StatisticData(
-                    start=dt,
-                    state=partial_sum,
-                    mean=mean,
-                    sum=accumulated,
-                )
-            )
-
-        return ret
