@@ -42,25 +42,6 @@ sensor:
 ...
 ```
 
-Adding Proxmox VE to your Home Assistant instance can be done via the UI using this button:
-
-[![image](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start?domain=proxmoxve)
-
-You can either use password or token based authentication. For user based authentication leave the
-token name field empty. If you want to use token based authentication, fill the token name in the
-corresponding input field and put your token secret in the password field.
-
-### Manual Configuration
-
-If the button above doesn't work, you can also perform the following steps manually:
-
-* Navigate to your Home Assistant instance.
-* In the sidebar, click Settings.
-* From the Setup menu, select: Devices & Services.
-* In the lower right corner, click the Add integration button.
-* In the list, search and select `Proxmox VE`.
-* Follow the on-screen instructions to complete the setup.
-
 ## To-Do
 
 - [ ] Improve README
