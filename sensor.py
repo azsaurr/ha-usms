@@ -124,7 +124,9 @@ class EnergyUnit(SensorEntity):
         """
 
         now = datetime.now(tz=self._meter.TIMEZONE)
-        if (now - self._meter.last_update).total_seconds() <= 3600:
+        if (
+            now - self._attr_extra_state_attributes["last_update"]
+        ).total_seconds() <= 3600:
             return
 
         if self._meter.update():
@@ -151,6 +153,10 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
     _attr_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
+    _attr_extra_state_attributes = {
+        "last_update": None,
+    }
+
     def __init__(self, meter) -> None:
         """Initialize an Energy Consumption Meter."""
         super().__init__()
@@ -165,6 +171,7 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_state = None
 
         self._meter = meter
+        self._attr_extra_state_attributes["last_update"] = meter.get_last_updated()
 
         self._initial = True
 
@@ -187,12 +194,17 @@ class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
             _LOGGER.debug(f"{self._attr_name} initialized")
         else:
             now = datetime.now(tz=self._meter.TIMEZONE)
-            if (now - self._meter.last_update).total_seconds() > 3600:
+            if (
+                now - self._attr_extra_state_attributes["last_update"]
+            ).total_seconds() > 3600:
                 start_date = now - timedelta(days=1)
                 historical_states = await self.get_historical_states(
                     start_date=start_date
                 )
                 self._attr_historical_states = historical_states
+                self._attr_extra_state_attributes["last_update"] = (
+                    self._meter.get_last_updated()
+                )
 
                 _LOGGER.debug(f"{self._attr_name} updated")
 
