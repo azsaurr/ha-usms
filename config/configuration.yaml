@@ -10,3 +10,8 @@ logger:
   default: info
   logs:
     custom_components.ha-usms: debug
+
+sensor:
+  - platform: ha-usms
+    username: !secret usms_username
+    password: !secret usms_password
