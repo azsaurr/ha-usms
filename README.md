@@ -60,4 +60,5 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ## Acknowledgments
 
 * []() Home Assistant [documentation for developers](https://developers.home-assistant.io/docs/creating_component_index)
+* []() [ludeeus/integration_blueprint](https://github.com/ludeeus/integration_blueprint)
 * []() [USMS](https://www.usms.com.bn/smartmeter/about.html)
