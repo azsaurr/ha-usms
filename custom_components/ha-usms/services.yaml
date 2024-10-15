@@ -1,0 +1,50 @@
+download_meter_consumption_history_service:
+  name: Download Meter Consumption History
+  description: >
+    Download the consumption history for given meter number
+  fields:
+    meter_no:
+      name: Meter Number
+      description: The meter number to download
+      example: "12345678"
+      required: true
+    start:
+      name: Start date
+      description: History start date
+      example: "1999-12-31"
+    end:
+      name: End date
+      description: History end date
+      example: "2019-12-31"
+
+recalculate_meter_sum_statistics_service:
+  name: Recalculate Meter Sum Statistics
+  description: >
+    Recalculates the sum statistical data for a given meter.
+  fields:
+    meter_no:
+      name: Meter Number
+      description: The meter number to process
+      example: "12345678"
+      required: true
+
+update_meters_service:
+  name: Update Meters
+  description: >
+    Update data for all meters
+
+calculate_utility_cost_response_service:
+  name: Calculate Utility Cost
+  description: >
+    Calculate the cost for given utility usage
+  fields:
+    consumption:
+      name: Consumption
+      description: Utility consumption usage in kWh / cubic metre
+      example: 1000.000
+      required: true
+    type:
+      name: Type
+      description: Utility type, either electricity or water
+      example: "electricity"
+      required: true

@@ -1,335 +1,258 @@
-"""Platform for sensor integration."""
+"""Sensor platform for ha_usms."""
 
 from __future__ import annotations
 
-from datetime import timedelta, datetime
-import itertools
-import logging
-import statistics
-import voluptuous as vol
-from zoneinfo import ZoneInfo
+from datetime import datetime
+from typing import TYPE_CHECKING
 
-import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.components.recorder.statistics import async_import_statistics
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
-    PLATFORM_SCHEMA,
 )
-from homeassistant.components.datetime import DateTimeEntity
-from homeassistant.components.number import NumberEntity
-from homeassistant.const import (
-    CONF_PASSWORD,
-    CONF_USERNAME,
-    UnitOfEnergy,
-)
-from homeassistant.components.recorder.models.statistics import (
-    StatisticData,
-    StatisticMetaData,
-)
-from homeassistant.util import dt as dtutil
+from homeassistant.core import callback
+from usms import USMSMeter
 
-from homeassistant_historical_sensor import (
-    HistoricalSensor,
-    HistoricalState,
-    PollUpdateMixin,
-)
+from .const import DOMAIN, LOGGER
+from .entity import HaUsmsEntity
 
-from usms import USMSAccount
+if TYPE_CHECKING:
+    from homeassistant.components.recorder.models.statistics import StatisticMetaData
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-_LOGGER = logging.getLogger(__name__)
-
-# Validation of the user's configuration
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-    }
-)
+    from .coordinator import HaUsmsDataUpdateCoordinator
+    from .data import HaUsmsConfigEntry
 
 
-def setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
-    add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    entry: HaUsmsConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the USMS platform."""
-    # Assign configuration variables.
-    # The configuration check takes care they are present.
-    username = config[CONF_USERNAME]
-    password = config.get(CONF_PASSWORD)
+    """Set up the sensor platform."""
+    coordinator = hass.data[DOMAIN][entry.entry_id].coordinator
 
-    # Setup connection with devices/cloud
-    try:
-        account = USMSAccount(username, password)
-    except Exception:
-        _LOGGER.error("Could not login with the given credentials")
-        return
+    account = coordinator.account
+    meters = account.meters
 
-    # Add meters as entities
-    for meter in account.meters:
-        if not meter.is_active():
-            continue
+    sensors = []
+    for meter in meters:
+        sensors.append(HaUsmsUtilityMeterRemainingUnit(coordinator, meter))
+        sensors.append(HaUsmsUtilityMeterRemainingCredit(coordinator, meter))
+        sensors.append(HaUsmsUtilityMeterLastUpdated(coordinator, meter))
 
-        if meter.type == "Electricity":
-            add_entities([EnergyUnit(meter)])
-            add_entities([EnergyConsumption(meter)])
+        utility_meter_consumption = HaUsmsUtilityMeterConsumption(coordinator, meter)
+        sensors.append(utility_meter_consumption)
+        coordinator.meter_consumptions[meter.no] = utility_meter_consumption
 
-        if meter.type == "Water":
-            # TODO
-            continue
+    async_add_entities(sensors)
 
 
-class EnergyUnit(SensorEntity):
-    """Representation of an Energy Unit reading from a Meter."""
+class HaUsmsUtilityMeterRemainingUnit(HaUsmsEntity, SensorEntity):
+    """HaUsmsUtilityMeterRemainingUnit Sensor class."""
 
-    _attr_has_entity_name = True
+    _attr_native_value: float = 0.0
 
-    _attr_suggested_display_precision = 3
-    _attr_device_class = SensorDeviceClass.ENERGY_STORAGE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    _attr_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-
-    _attr_extra_state_attributes = {
-        "credit": None,
-        "last_update": None,
-    }
-
-    def __init__(self, meter) -> None:
-        """Initialize an Energy Unit Meter."""
-        super().__init__()
-
-        self._attr_name = "usms_electricity_meter_" + meter.no + "_unit"
-        self._attr_unique_id = "usms_electricity_meter_" + meter.no + "_unit"
-        self._attr_entity_id = "usms_electricity_meter_" + meter.no + "_unit"
-
-        self._attr_state = meter.is_active()
-
-        self._attr_native_value = meter.get_remaining_unit()
-
-        self._attr_extra_state_attributes["credit"] = meter.get_remaining_credit()
-        self._attr_extra_state_attributes["last_update"] = meter.get_last_updated()
-
-        self._meter = meter
-
-    def update(self) -> None:
-        """Fetch new state data for the meter.
-
-        This is the only method that should fetch new data for Home Assistant.
-        """
-
-        now = datetime.now(tz=self._meter.TIMEZONE)
-        if (
-            now - self._attr_extra_state_attributes["last_update"]
-        ).total_seconds() <= 3600:
-            return
-
-        if self._meter.update():
-            self._attr_native_value = self._meter.get_remaining_unit()
-
-            self._attr_extra_state_attributes["credit"] = (
-                self._meter.get_remaining_credit()
-            )
-            self._attr_extra_state_attributes["last_update"] = (
-                self._meter.get_last_updated()
-            )
-
-        _LOGGER.debug(f"{self._attr_name} updated")
-
-
-class EnergyConsumption(PollUpdateMixin, HistoricalSensor, SensorEntity):
-    """Representation of an Energy Consumption reading from a Meter."""
-
-    _attr_has_entity_name = True
-
-    _attr_suggested_display_precision = 3
-    _attr_device_class = SensorDeviceClass.ENERGY
-
-    _attr_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-
-    _attr_extra_state_attributes = {
-        "last_update": None,
-    }
-
-    def __init__(self, meter) -> None:
-        """Initialize an Energy Consumption Meter."""
-        super().__init__()
-
-        self._attr_name = "usms_electricity_meter_" + meter.no + "_consumption"
-        self._attr_unique_id = "usms_electricity_meter_" + meter.no + "_consumption"
-        self._attr_entity_id = "usms_electricity_meter_" + meter.no + "_consumption"
-
-        self._attr_state_class = None
-
-        self._attr_entity_registry_enabled_default = True
-        self._attr_state = None
-
-        self._meter = meter
-        self._attr_extra_state_attributes["last_update"] = meter.get_last_updated()
-
-        self._initial = True
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-
-    async def async_update_historical(self):
-        # Fill `HistoricalSensor._attr_historical_states` with HistoricalState's
-        # This functions is equivaled to the `Sensor.async_update` from
-        # HomeAssistant core
-        #
-        # Important: You must provide datetime with tzinfo
-
-        # only run this once during first boot
-        if self._initial:
-            historical_states = await self.get_historical_states()
-            self._attr_historical_states = historical_states
-            self._initial = False
-
-            _LOGGER.debug(f"{self._attr_name} initialized")
-        else:
-            now = datetime.now(tz=self._meter.TIMEZONE)
-            if (
-                now - self._attr_extra_state_attributes["last_update"]
-            ).total_seconds() > 3600:
-                start_date = now - timedelta(days=1)
-                historical_states = await self.get_historical_states(
-                    start_date=start_date
-                )
-                self._attr_historical_states = historical_states
-                self._attr_extra_state_attributes["last_update"] = (
-                    self._meter.get_last_updated()
-                )
-
-                _LOGGER.debug(f"{self._attr_name} updated")
-
-    async def get_historical_states(
+    def __init__(
         self,
-        start_date: datetime | None = None,
-        end_date: datetime | None = None,
-    ) -> list[HistoricalState]:
-        """
-        Returns a chronologically ascending
-        list of historical states
-        according to range of dates passed
-        """
+        coordinator: HaUsmsDataUpdateCoordinator,
+        meter: USMSMeter,
+    ) -> None:
+        """Initialize the sensor class."""
+        super().__init__(coordinator)
 
-        # if start date is not given, just get from forever ago
-        if not start_date:
-            start_date = datetime.min.replace(tzinfo=self._meter.TIMEZONE)
+        self.meter = meter
 
-        if end_date:
-            iter_date = end_date
-        # if end date is not given, just get until today
-        else:
-            iter_date = datetime.now(tz=self._meter.TIMEZONE)
+        self._attr_native_value = self.meter.get_remaining_unit()
 
-        historical_states = []
-        while iter_date >= start_date:
-            try:
-                hourly_consumptions = self._meter.get_hourly_consumptions(
-                    datetime(iter_date.year, iter_date.month, iter_date.day)
-                )
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update sensor with latest data from coordinator."""
+        if self.available:
+            self._attr_native_value = self.meter.get_remaining_unit()
 
-                for hour, consumption in reversed(hourly_consumptions.items()):
-                    if hour == 24:
-                        temp_date = iter_date + timedelta(days=1)
-                        historical_state = HistoricalState(
-                            state=consumption,
-                            dt=dtutil.as_local(
-                                datetime(
-                                    temp_date.year,
-                                    temp_date.month,
-                                    temp_date.day,
-                                    0,
-                                    tzinfo=self._meter.TIMEZONE,
-                                )
-                            ),
-                        )
-                    else:
-                        historical_state = HistoricalState(
-                            state=consumption,
-                            dt=dtutil.as_local(
-                                datetime(
-                                    iter_date.year,
-                                    iter_date.month,
-                                    iter_date.day,
-                                    hour,
-                                    tzinfo=self._meter.TIMEZONE,
-                                )
-                            ),
-                        )
-                    historical_states.insert(0, historical_state)
-                _LOGGER.debug(
-                    f"Retrieved {self._attr_name} historical data for {iter_date}"
-                )
-                iter_date -= timedelta(days=1)
-            except Exception:
-                # stops iterating once no more historical data can be obtained
-                break
-
-        return historical_states
+            self.async_write_ha_state()
+            LOGGER.debug(f"Updated {self.unique_id}")
 
     @property
-    def statistic_id(self) -> str:
-        return self.entity_id
+    def device_class(self) -> str | None:
+        """Return device class."""
+        if self.meter.get_type() == "Electricity":
+            return SensorDeviceClass.ENERGY_STORAGE
+        if self.meter.get_type() == "Water":
+            return SensorDeviceClass.WATER
+        return None
 
-    def get_statistic_metadata(self) -> StatisticMetaData:
-        #
-        # Add sum and mean to base statistics metadata
-        # Important: HistoricalSensor.get_statistic_metadata returns an
-        # internal source by default.
-        #
-        meta = super().get_statistic_metadata()
-        meta["has_sum"] = True
-        meta["has_mean"] = True
+    @property
+    def name(self) -> str:
+        """Return the name of the meter."""
+        return f"{self.meter.get_type()} Meter {self.meter.get_no()}"
 
-        return meta
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit of meter."""
+        return self.meter.get_unit()
 
-    async def async_calculate_statistic_data(
+    @property
+    def state_class(self) -> str:
+        """Return state class."""
+        return SensorStateClass.MEASUREMENT
+
+
+class HaUsmsUtilityMeterRemainingCredit(HaUsmsEntity, SensorEntity):
+    """HaUsmsUtilityMeterRemainingCredit Sensor class."""
+
+    _attr_native_value: float = 0.0
+
+    def __init__(
         self,
-        hist_states: list[HistoricalState],
-        *,
-        latest: dict | None = None,
-    ) -> list[StatisticData]:
-        #
-        # Group historical states by hour
-        # Calculate sum, mean, etc...
-        #
+        coordinator: HaUsmsDataUpdateCoordinator,
+        meter: USMSMeter,
+    ) -> None:
+        """Initialize the sensor class."""
+        super().__init__(coordinator)
 
-        accumulated = latest["sum"] if latest else 0
+        self.meter = meter
 
-        def hour_block_for_hist_state(hist_state: HistoricalState) -> datetime:
-            # XX:00:00 states belongs to previous hour block
-            if hist_state.dt.minute == 0 and hist_state.dt.second == 0:
-                dt = hist_state.dt - timedelta(hours=1)
-                return dt.replace(minute=0, second=0, microsecond=0)
+        self._attr_native_value = self.meter.get_remaining_credit()
 
-            else:
-                return hist_state.dt.replace(minute=0, second=0, microsecond=0)
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update sensor with latest data from coordinator."""
+        if self.available:
+            self._attr_native_value = self.meter.get_remaining_credit()
 
-        ret = []
-        for dt, collection_it in itertools.groupby(
-            hist_states,
-            key=hour_block_for_hist_state,
-        ):
-            collection = list(collection_it)
-            mean = statistics.mean([x.state for x in collection])
-            partial_sum = sum([x.state for x in collection])
-            accumulated = accumulated + partial_sum
+            self.async_write_ha_state()
+            LOGGER.debug(f"Updated {self.unique_id}")
 
-            ret.append(
-                StatisticData(
-                    start=dt,
-                    state=partial_sum,
-                    mean=mean,
-                    sum=accumulated,
-                )
+    @property
+    def device_class(self) -> str | None:
+        """Return device class."""
+        return SensorDeviceClass.MONETARY
+
+    @property
+    def name(self) -> str:
+        """Return the name of the meter."""
+        return f"{self.meter.get_type()} Meter {self.meter.get_no()} Remaining Credit"
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit of meter."""
+        return "BND"
+
+    @property
+    def state_class(self) -> str:
+        """Return state class."""
+        return None
+
+
+class HaUsmsUtilityMeterLastUpdated(HaUsmsEntity, SensorEntity):
+    """HaUsmsUtilityMeterLastUpdated Sensor class."""
+
+    _attr_native_value: datetime = datetime.min.replace(tzinfo=USMSMeter.TIMEZONE)
+
+    def __init__(
+        self,
+        coordinator: HaUsmsDataUpdateCoordinator,
+        meter: USMSMeter,
+    ) -> None:
+        """Initialize the sensor class."""
+        super().__init__(coordinator)
+
+        self.meter = meter
+
+        self._attr_native_value = self.meter.get_last_updated()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update sensor with latest data from coordinator."""
+        if self.available:
+            self._attr_native_value = self.meter.get_last_updated()
+
+            self.async_write_ha_state()
+            LOGGER.debug(f"Updated {self.unique_id}")
+
+    @property
+    def device_class(self) -> str | None:
+        """Return device class."""
+        return SensorDeviceClass.TIMESTAMP
+
+    @property
+    def name(self) -> str:
+        """Return the name of the meter."""
+        return f"{self.meter.get_type()} Meter {self.meter.get_no()} Last Updated"
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit of meter."""
+        return None
+
+    @property
+    def state_class(self) -> str:
+        """Return state class."""
+        return None
+
+
+class HaUsmsUtilityMeterConsumption(HaUsmsEntity, SensorEntity):
+    """HaUsmsUtilityMeterConsumption Sensor class."""
+
+    def __init__(
+        self,
+        coordinator: HaUsmsDataUpdateCoordinator,
+        meter: USMSMeter,
+    ) -> None:
+        """Initialize the sensor class."""
+        super().__init__(coordinator)
+
+        self.meter = meter
+
+        self._attr_native_value = None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update sensor with latest data from coordinator."""
+        if self.available:
+            async_import_statistics(
+                self.coordinator.hass,
+                self.metadata,
+                self.coordinator.data[self.meter.no],
             )
+            LOGGER.debug(f"Updated {self.unique_id}")
 
-        return ret
+    @property
+    def device_class(self) -> str | None:
+        """Return device class."""
+        if self.meter.get_type() == "Electricity":
+            return SensorDeviceClass.ENERGY
+        if self.meter.get_type() == "Water":
+            return SensorDeviceClass.WATER
+        return None
+
+    @property
+    def metadata(self) -> StatisticMetaData:
+        """Return device class."""
+        return {
+            "has_mean": False,
+            "has_sum": True,
+            "name": self.name,
+            "source": "recorder",
+            "statistic_id": f"sensor.{self.unique_id}",
+            "unit_of_measurement": self.native_unit_of_measurement,
+        }
+
+    @property
+    def name(self) -> str:
+        """Return the name of the meter."""
+        return f"{self.meter.get_type()} Meter {self.meter.get_no()} Consumption"
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit of meter."""
+        return self.meter.get_unit()
+
+    @property
+    def state_class(self) -> str:
+        """Return state class."""
+        return SensorStateClass.TOTAL_INCREASING
