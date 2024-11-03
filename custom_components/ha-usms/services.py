@@ -155,8 +155,6 @@ class HaUsmsServicesSetup:
 
         """Imports the downloaded data to the statistics table."""
         async_import_statistics(self.hass, sensor.metadata, historical_states)
-        """Then recalculate the sum column."""
-        await self.recalculate_meter_sum_statistics(service_call)
 
     async def recalculate_meter_sum_statistics(self, service_call: ServiceCall) -> None:
         """Recalculates the sum statistical data for a given meter."""
@@ -233,7 +231,7 @@ class HaUsmsServicesSetup:
         according to the utility type's tariff.
         """
         consumption = service_call.data["consumption"]
-        meter_type = service_call.data["meter_type"]
+        meter_type = service_call.data["type"]
 
         if "electric" in meter_type.lower():
             meter_type = "Electricity"
@@ -243,6 +241,6 @@ class HaUsmsServicesSetup:
             error = "Meter type not valid."
             raise HomeAssistantError(error)
 
-        cost = USMSMeter.calculate_cost(consumption, "Electricity")
+        cost = USMSMeter.calculate_cost(USMSMeter, consumption, "Electricity")
 
         return {"cost": cost}

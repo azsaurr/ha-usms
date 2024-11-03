@@ -41,7 +41,7 @@ calculate_utility_cost_response_service:
     consumption:
       name: Consumption
       description: Utility consumption usage in kWh / cubic metre
-      example: 1000.000
+      example: 1234.567
       required: true
     type:
       name: Type
