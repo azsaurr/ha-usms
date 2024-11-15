@@ -52,10 +52,13 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
             LOGGER.debug(f"Retrieving updates for USMS meter {meter.no}.")
             success = await self.hass.async_add_executor_job(meter.update, True)  # noqa: FBT003
 
-            if not success:
+            if success:
+                LOGGER.debug(f"Retrieved update for USMS meter {meter.no}.")
+                LOGGER.debug(f"Last updated on {meter.get_last_updated()}.")
+            else:
                 self.update_interval = timedelta(minutes=5)
                 error = f"Error retrieving update. Retry in {self.update_interval}"
-                LOGGER.debug(error)
+                LOGGER.error(error)
                 raise UpdateFailed(error)
 
         """
