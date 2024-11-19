@@ -113,26 +113,21 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
             """
-            Lets re-download yesterday's data as well to be safe,
-            but only do so early on during the day. Maybe before 8am?
+            Lets re-download yesterday's data as well to be safe.
             """
-            hour_threshold = 8
-            if now.hour <= hour_threshold:
-                try:
-                    LOGGER.debug(
-                        f"Retrieving consumptions for USMS meter {meter.no} for yesterday."  # noqa: E501
-                    )
-                    yesterday_hourly_consumptions = (
-                        await self.hass.async_add_executor_job(
-                            meter.get_hourly_consumptions,
-                            yesterday,
-                        )
-                    )
-                    hourly_consumptions.update(yesterday_hourly_consumptions)
-                except USMSConsumptionHistoryNotFoundError:
-                    LOGGER.error(
-                        f"Consumptions not found yet for USMS meter {meter.no} for yesterday."  # noqa: E501
-                    )
+            try:
+                LOGGER.debug(
+                    f"Retrieving consumptions for USMS meter {meter.no} for yesterday."  # noqa: E501
+                )
+                yesterday_hourly_consumptions = await self.hass.async_add_executor_job(
+                    meter.get_hourly_consumptions,
+                    yesterday,
+                )
+                hourly_consumptions.update(yesterday_hourly_consumptions)
+            except USMSConsumptionHistoryNotFoundError:
+                LOGGER.error(
+                    f"Consumptions not found yet for USMS meter {meter.no} for yesterday."  # noqa: E501
+                )
 
             """
             Skip calculating statistics for this meter if no consumption history found.
@@ -156,12 +151,9 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
                 statistic_id = sensor.metadata["statistic_id"]
 
                 """
-                Only query for data up until yesterday or two days ago,
-                depending on how far back we want to get data from.
+                Only query for data up until two days ago.
                 """
-                end_time = today  # until 1 day ago, 11:59PM
-                if now.hour <= hour_threshold:
-                    end_time = yesterday  # until 2 days ago, 11:59PM
+                end_time = yesterday  # until 2 days ago, 11:59PM
 
                 old_statistics_dict = await recorder.get_instance(
                     self.hass
