@@ -88,28 +88,40 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
 
         data = {}
         for meter in self.account.meters:
+            LOGGER.debug(f"Retrieving consumptions for USMS meter {meter.no}.")
+
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday = today - timedelta(days=1)
+
+            """
+            Sometimes the data on the USMS site can be stealthily corrected,
+            so we always re-import all hourly consumptions for the day,
+            not just the latest consumption.
+            """
             try:
-                LOGGER.debug(f"Retrieving consumptions for USMS meter {meter.no}.")
-
-                today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                yesterday = today - timedelta(days=1)
-
-                """
-                Sometimes the data on the USMS site can be stealthily corrected,
-                so we always re-import all hourly consumptions for the day,
-                not just the latest consumption.
-                """
+                LOGGER.debug(
+                    f"Retrieving consumptions for USMS meter {meter.no} for today."
+                )
                 hourly_consumptions = await self.hass.async_add_executor_job(
                     meter.get_hourly_consumptions,
                     today,
                 )
+            except USMSConsumptionHistoryNotFoundError:
+                hourly_consumptions = {}
+                LOGGER.error(
+                    f"Consumptions not found yet for USMS meter {meter.no} for today."
+                )
 
-                """
-                Lets re-download yesterday's data as well to be safe,
-                but only do so early on during the day. Maybe before 8am?
-                """
-                hour_threshold = 8
-                if now.hour <= hour_threshold:
+            """
+            Lets re-download yesterday's data as well to be safe,
+            but only do so early on during the day. Maybe before 8am?
+            """
+            hour_threshold = 8
+            if now.hour <= hour_threshold:
+                try:
+                    LOGGER.debug(
+                        f"Retrieving consumptions for USMS meter {meter.no} for yesterday."  # noqa: E501
+                    )
                     yesterday_hourly_consumptions = (
                         await self.hass.async_add_executor_job(
                             meter.get_hourly_consumptions,
@@ -117,70 +129,79 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
                         )
                     )
                     hourly_consumptions.update(yesterday_hourly_consumptions)
-
-                statistics = []
-
-                """
-                We want to find the last known correct sum state,
-                but for that we need the metadata from the meter's sensor entity.
-                """
-                sensor = self.meter_consumptions.get(meter.no)
-                """So first check if the sensor entity for the meter has been added."""
-                if sensor:
-                    statistic_id = sensor.metadata["statistic_id"]
-
-                    """
-                    Only query for data up until yesterday or two days ago,
-                    depending on how far back we want to get data from.
-                    """
-                    end_time = today  # until 1 day ago, 11:59PM
-                    if now.hour <= hour_threshold:
-                        end_time = yesterday  # until 2 days ago, 11:59PM
-
-                    old_statistics_dict = await recorder.get_instance(
-                        self.hass
-                    ).async_add_executor_job(
-                        statistics_during_period,
-                        self.hass,
-                        datetime.fromtimestamp(0, tz=USMSMeter.TIMEZONE),
-                        end_time,
-                        [statistic_id],
-                        "hour",
-                        None,
-                        ["sum"],
+                except USMSConsumptionHistoryNotFoundError:
+                    LOGGER.error(
+                        f"Consumptions not found yet for USMS meter {meter.no} for yesterday."  # noqa: E501
                     )
-                    old_statistics = old_statistics_dict.get(statistic_id)
-                    """Make sure statistic data is present in the database."""
-                    if old_statistics:
-                        total = old_statistics[-1]["sum"]
-                    else:
-                        """If not, then this data is likely the first in the database."""
-                        total = 0
 
-                    for hourly, consumption in sorted(hourly_consumptions.items()):
-                        total += consumption
-                        statistic: StatisticData = {
-                            "start": hourly - timedelta(hours=1),
-                            "state": consumption,
-                            "sum": total,
-                        }
-                        statistics.append(statistic)
-                else:
-                    """If sensor entity not yet added, then no need to calculate sum."""
-                    for hourly, consumption in hourly_consumptions.items():
-                        statistic: StatisticData = {
-                            "start": hourly - timedelta(hours=1),
-                            "state": consumption,
-                        }
-                        statistics.append(statistic)
-
-                """Store statistics in data, to be imported by listener."""
-                data[meter.no] = statistics
-            except USMSConsumptionHistoryNotFoundError:
-                LOGGER.error(f"Consumptions not found yet for USMS meter {meter.no}.")
-
-                """Store empty list since no consumption history uploaded yet."""
+            """
+            Skip calculating statistics for this meter if no consumption history found.
+            """
+            if hourly_consumptions == {}:
+                LOGGER.debug(
+                    f"Skipping statistics calculation for USMS meter {meter.no}."
+                )
                 data[meter.no] = []
+                continue
+
+            statistics = []
+
+            """
+            We want to find the last known correct sum state,
+            but for that we need the metadata from the meter's sensor entity.
+            """
+            sensor = self.meter_consumptions.get(meter.no)
+            """So first check if the sensor entity for the meter has been added."""
+            if sensor:
+                statistic_id = sensor.metadata["statistic_id"]
+
+                """
+                Only query for data up until yesterday or two days ago,
+                depending on how far back we want to get data from.
+                """
+                end_time = today  # until 1 day ago, 11:59PM
+                if now.hour <= hour_threshold:
+                    end_time = yesterday  # until 2 days ago, 11:59PM
+
+                old_statistics_dict = await recorder.get_instance(
+                    self.hass
+                ).async_add_executor_job(
+                    statistics_during_period,
+                    self.hass,
+                    datetime.fromtimestamp(0, tz=USMSMeter.TIMEZONE),
+                    end_time,
+                    [statistic_id],
+                    "hour",
+                    None,
+                    ["sum"],
+                )
+                old_statistics = old_statistics_dict.get(statistic_id)
+                """Make sure statistic data is present in the database."""
+                if old_statistics:
+                    total = old_statistics[-1]["sum"]
+                else:
+                    """If not, then this data is likely the first in the database."""
+                    total = 0
+
+                for hourly, consumption in sorted(hourly_consumptions.items()):
+                    total += consumption
+                    statistic: StatisticData = {
+                        "start": hourly - timedelta(hours=1),
+                        "state": consumption,
+                        "sum": total,
+                    }
+                    statistics.append(statistic)
+            else:
+                """If sensor entity not yet added, then no need to calculate sum."""
+                for hourly, consumption in hourly_consumptions.items():
+                    statistic: StatisticData = {
+                        "start": hourly - timedelta(hours=1),
+                        "state": consumption,
+                    }
+                    statistics.append(statistic)
+
+            """Store statistics in data, to be imported by listener."""
+            data[meter.no] = statistics
 
         LOGGER.debug(f"Retrieved updates for USMS account {self.account.reg_no}.")
         LOGGER.debug(f"Next update is on {next_update}, in {self.update_interval}.")
