@@ -9,7 +9,7 @@ from homeassistant.components import recorder
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from usms import USMSAccount, USMSMeter, USMSConsumptionHistoryNotFoundError
+from usms import USMSAccount, USMSConsumptionHistoryNotFoundError, USMSMeter
 
 from .const import DOMAIN, LOGGER
 
@@ -117,7 +117,7 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
             """
             try:
                 LOGGER.debug(
-                    f"Retrieving consumptions for USMS meter {meter.no} for yesterday."  # noqa: E501
+                    f"Retrieving consumptions for USMS meter {meter.no} for yesterday."
                 )
                 yesterday_hourly_consumptions = await self.hass.async_add_executor_job(
                     meter.get_hourly_consumptions,
