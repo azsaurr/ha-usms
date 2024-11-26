@@ -47,6 +47,10 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
         """Update data via library."""
         LOGGER.debug(f"Retrieving updates for USMS account {self.account.reg_no}.")
 
+        """Log out first"""
+        """Might help account to be updated more consistently on USMS's side?"""
+        self.account.log_out()
+
         """Check for updates for every meter."""
         for meter in self.account.meters:
             LOGGER.debug(f"Retrieving updates for USMS meter {meter.no}.")
@@ -84,6 +88,7 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
                 This prevents listeners from being called,
                 and making unnecessary writes to states everytime.
                 """
+                self.account.log_out()
                 raise UpdateFailed(error)
 
         data = {}
@@ -194,6 +199,8 @@ class HaUsmsDataUpdateCoordinator(DataUpdateCoordinator):
 
             """Store statistics in data, to be imported by listener."""
             data[meter.no] = statistics
+
+        self.account.log_out()
 
         LOGGER.debug(f"Retrieved updates for USMS account {self.account.reg_no}.")
         LOGGER.debug(f"Next update is on {next_update}, in {self.update_interval}.")
