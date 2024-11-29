@@ -213,7 +213,7 @@ class HaUsmsUtilityMeterConsumption(HaUsmsEntity, SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update sensor with latest data from coordinator."""
-        if self.available and not self.coordinator.data.get(self.meter.no):
+        if self.available and self.coordinator.data.get(self.meter.no):
             async_import_statistics(
                 self.coordinator.hass,
                 self.metadata,
